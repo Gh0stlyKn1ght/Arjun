@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlparse
 
 burp_regex = re.compile(r'''(?m)^    <url><!\[CDATA\[(.+?)\]\]></url>
     <host ip="[^"]*">[^<]+</host>
@@ -11,6 +12,30 @@ burp_regex = re.compile(r'''(?m)^    <url><!\[CDATA\[(.+?)\]\]></url>
     <status>([^<]*)</status>
     <responselength>([^<]*)</responselength>
     <mimetype>([^<]*)</mimetype>''')
+
+
+def infer_scheme(path, headers):
+    """
+    infers request scheme from request line, forwarding headers and origin hints
+    returns str
+    """
+    if path.startswith(('http://', 'https://')):
+        return urlparse(path).scheme
+    forwarded = headers.get('Forwarded', '')
+    match = re.search(r'(?:^|[;,]\s*)proto=(https?)(?:\s*[;,]|$)', forwarded, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+    x_forwarded_proto = headers.get('X-Forwarded-Proto', '').split(',')[0].strip().lower()
+    if x_forwarded_proto in ('http', 'https'):
+        return x_forwarded_proto
+    for key in ('Origin', 'Referer'):
+        value = headers.get(key)
+        if not value:
+            continue
+        scheme = urlparse(value).scheme
+        if scheme in ('http', 'https'):
+            return scheme
+    return 'http'
 
 
 def reader(path, mode='string'):
@@ -35,7 +60,14 @@ def parse_request(string):
     result['method'] = match.group(1)
     result['path'] = match.group(2)
     result['headers'] = parse_headers(match.group(3))
-    result['url'] = 'http://' + result['headers']['Host'] + result['path']
+    scheme = infer_scheme(result['path'], result['headers'])
+    if result['path'].startswith(('http://', 'https://')):
+        result['url'] = result['path']
+    elif re.match(r'^[^/?#\s]+:\d+$', result['path']):
+        result['url'] = scheme + '://' + result['path']
+    else:
+        path = result['path'] if result['path'].startswith('/') else '/' + result['path']
+        result['url'] = scheme + '://' + result['headers']['Host'] + path
     result['data'] = match.group(4)
     return result
 
