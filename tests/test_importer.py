@@ -22,6 +22,23 @@ class ImporterTests(unittest.TestCase):
         )
         self.assertEqual(request['url'], 'https://example.com/report')
 
+    def test_parse_request_handles_authority_form_targets(self):
+        request = parse_request(
+            'CONNECT example.com:443 HTTP/1.1\n'
+            'Host: example.com\n'
+            '\n'
+        )
+        self.assertEqual(request['url'], 'http://example.com:443')
+
+    def test_forwarded_proto_is_detected_from_parameter_boundary(self):
+        request = parse_request(
+            'POST /report HTTP/1.1\n'
+            'Host: example.com\n'
+            'Forwarded: host=proto=https.example;for=1.1.1.1, proto=https\n'
+            '\n'
+        )
+        self.assertEqual(request['url'], 'https://example.com/report')
+
 
 if __name__ == '__main__':
     unittest.main()

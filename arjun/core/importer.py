@@ -16,13 +16,13 @@ burp_regex = re.compile(r'''(?m)^    <url><!\[CDATA\[(.+?)\]\]></url>
 
 def infer_scheme(path, headers):
     """
-    infers request scheme from request line and common forwarding headers
+    infers request scheme from request line, forwarding headers and origin hints
     returns str
     """
     if path.startswith(('http://', 'https://')):
         return urlparse(path).scheme
     forwarded = headers.get('Forwarded', '')
-    match = re.search(r'proto=(https?)', forwarded, re.IGNORECASE)
+    match = re.search(r'(?:^|[;,]\s*)proto=(https?)(?:\s*[;,]|$)', forwarded, re.IGNORECASE)
     if match:
         return match.group(1).lower()
     x_forwarded_proto = headers.get('X-Forwarded-Proto', '').split(',')[0].strip().lower()
@@ -63,6 +63,8 @@ def parse_request(string):
     scheme = infer_scheme(result['path'], result['headers'])
     if result['path'].startswith(('http://', 'https://')):
         result['url'] = result['path']
+    elif re.match(r'^[^/?#\s]+:\d+$', result['path']):
+        result['url'] = scheme + '://' + result['path']
     else:
         path = result['path'] if result['path'].startswith('/') else '/' + result['path']
         result['url'] = scheme + '://' + result['headers']['Host'] + path
